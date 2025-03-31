@@ -86,32 +86,40 @@ def extract_table_data_scan(text):
         current_values = []
         current_range = None
         value_count = 0
-        
-        for line in lines[current_line:]:
+        i = current_line
+        while i < len(lines):
+            line = lines[i]
+            
             # Skip if we hit another Component header
             if line.startswith("Component"):
                 # Save previous component if we have one
                 if current_component and len(current_values) > 0:
-                    row = [current_component] + current_values + [current_range]  # Add reference range to row
-                    if len(row) == len(date_headers) + 2:  # +2 for Test and Reference Range columns
-                        data_rows.append(row)
+                    # Pad values with empty strings if we don't have enough
+                    while len(current_values) < len(date_headers):
+                        current_values.append("")
+                    row = [current_component] + current_values + [current_range]
+                    data_rows.append(row)
                     current_values = []
                     value_count = 0
                     current_range = None
                 current_component = line
+                i += 1
                 continue
                 
             # Skip if we hit another date header
             if date_pattern.search(line):
+                i += 1
                 continue
                 
             # If this is a component name (not a value or normal range)
             if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
                 # If we have a previous component, save it
                 if current_component and len(current_values) > 0:
-                    row = [current_component] + current_values + [current_range]  # Add reference range to row
-                    if len(row) == len(date_headers) + 2:  # +2 for Test and Reference Range columns
-                        data_rows.append(row)
+                    # Pad values with empty strings if we don't have enough
+                    while len(current_values) < len(date_headers):
+                        current_values.append("")
+                    row = [current_component] + current_values + [current_range]
+                    data_rows.append(row)
                     current_values = []
                     value_count = 0
                     current_range = None
@@ -122,19 +130,35 @@ def extract_table_data_scan(text):
                 current_range = None
             # If this is a normal range
             elif line.startswith("Normal Range:"):
-                current_range = line.replace("Normal Range:", "").strip()
+                # Check if the next line is a continuation of the range
+                range_text = line.replace("Normal Range:", "").strip()
+                while i + 1 < len(lines) and not any(c.isdigit() for c in lines[i + 1]) and not lines[i + 1].startswith("Normal Range:"):
+                    i += 1
+                    range_text += " " + lines[i].strip()
+                current_range = range_text
                 print(f"Debug: Found reference range for {current_component}: {current_range}")
             # If this is a value
             elif any(c.isdigit() for c in line):
+                # Skip if this is just a unit (like "m2" or "CO2")
+                if line.strip().lower() in ['m2', 'co2']:
+                    i += 1
+                    continue
+                # Skip if this is part of the reference range
+                if current_range and line.strip() in current_range:
+                    i += 1
+                    continue
                 current_values.append(line.strip())
                 value_count += 1
                 print(f"Debug: Added value {line.strip()} for component {current_component}")
+            i += 1
         
         # Don't forget to add the last component
         if current_component and len(current_values) > 0:
-            row = [current_component] + current_values + [current_range]  # Add reference range to row
-            if len(row) == len(date_headers) + 2:  # +2 for Test and Reference Range columns
-                data_rows.append(row)
+            # Pad values with empty strings if we don't have enough
+            while len(current_values) < len(date_headers):
+                current_values.append("")
+            row = [current_component] + current_values + [current_range]
+            data_rows.append(row)
         
         print(f"Found {len(data_rows)} valid data rows")
         for row in data_rows:
