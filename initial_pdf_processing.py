@@ -29,6 +29,13 @@ def extract_table_data_scan(text):
     # Split text into lines and remove empty lines
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
+    print("\nDebug: Looking for dates in the text:")
+    for i, line in enumerate(lines):
+        if i >= 3 and i <= 5:  # Show lines around line 4
+            print(f"Line {i}: {line}")
+            if 'Feb 9, 2024' in line or 'Oct 16, 2024' in line:
+                print(f"Found target date in line {i}")
+    
     # Find the Component row (first row)
     component_row = None
     for i, line in enumerate(lines):
@@ -37,10 +44,15 @@ def extract_table_data_scan(text):
             break
     
     if component_row is None:
+        print("\nDebug: Could not find 'Component' in any line")
         return None, None
+    
+    print(f"\nDebug: Found Component row at index {component_row}")
     
     # Extract components and dates
     components = [item.strip() for item in lines[component_row].split('\t')]
+    print(f"\nDebug: Found components: {components}")
+    
     dates = []
     values = []
     
@@ -50,11 +62,14 @@ def extract_table_data_scan(text):
         if len(items) == len(components):
             values.append(items)
     
+    print(f"\nDebug: Found {len(values)} data rows")
+    
     # Convert to DataFrame
     df = pd.DataFrame(values, columns=components)
     
     # Extract dates from column headers (skip the Component column)
     dates = components[1:]
+    print(f"\nDebug: Found dates: {dates}")
     
     return df, dates
 
