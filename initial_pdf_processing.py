@@ -92,11 +92,12 @@ def extract_table_data_scan(text):
             if line.startswith("Component"):
                 # Save previous component if we have one
                 if current_component and len(current_values) > 0:
-                    row = [current_component] + current_values
-                    if len(row) == len(date_headers) + 1:  # +1 for Component column
+                    row = [current_component] + current_values + [current_range]  # Add reference range to row
+                    if len(row) == len(date_headers) + 2:  # +2 for Test and Reference Range columns
                         data_rows.append(row)
                     current_values = []
                     value_count = 0
+                    current_range = None
                 current_component = line
                 continue
                 
@@ -108,11 +109,12 @@ def extract_table_data_scan(text):
             if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
                 # If we have a previous component, save it
                 if current_component and len(current_values) > 0:
-                    row = [current_component] + current_values
-                    if len(row) == len(date_headers) + 1:  # +1 for Component column
+                    row = [current_component] + current_values + [current_range]  # Add reference range to row
+                    if len(row) == len(date_headers) + 2:  # +2 for Test and Reference Range columns
                         data_rows.append(row)
                     current_values = []
                     value_count = 0
+                    current_range = None
                 
                 # Start new component
                 current_component = line
@@ -121,6 +123,7 @@ def extract_table_data_scan(text):
             # If this is a normal range
             elif line.startswith("Normal Range:"):
                 current_range = line.replace("Normal Range:", "").strip()
+                print(f"Debug: Found reference range for {current_component}: {current_range}")
             # If this is a value
             elif any(c.isdigit() for c in line):
                 current_values.append(line.strip())
@@ -129,16 +132,16 @@ def extract_table_data_scan(text):
         
         # Don't forget to add the last component
         if current_component and len(current_values) > 0:
-            row = [current_component] + current_values
-            if len(row) == len(date_headers) + 1:  # +1 for Component column
+            row = [current_component] + current_values + [current_range]  # Add reference range to row
+            if len(row) == len(date_headers) + 2:  # +2 for Test and Reference Range columns
                 data_rows.append(row)
         
         print(f"Found {len(data_rows)} valid data rows")
         for row in data_rows:
             print(f"Debug: Data row: {row}")
         
-        # Create DataFrame with Component and date columns
-        columns = ['Component'] + date_headers
+        # Create DataFrame with Test, date columns, and Reference Range
+        columns = ['Test'] + date_headers + ['Reference Range']
         df = pd.DataFrame(data_rows, columns=columns)
         
         return df, date_headers
@@ -230,7 +233,7 @@ def main():
 
     for df, dates in all_data:
         for _, row in df.iterrows():
-            test = row['Component']
+            test = row['Test'] #changed this
             for date in dates:
                 if pd.notna(row.get(date, "")):
                     combined_data[test][date] = row.get(date, "")
@@ -246,7 +249,7 @@ def main():
     # Build rows for the final DataFrame
     rows = []
     for test in combined_data.keys():
-        row = {"Component": test}
+        row = {"Test": test} #changed this from Component to Test
         for d in all_dates:
             row[d] = combined_data[test].get(d, "")
         row["Reference Range"] = reference_ranges.get(test, "")
@@ -265,8 +268,8 @@ def main():
     rename_mapping = {old: reformat_date(old) for old in all_dates}
     final_df.rename(columns=rename_mapping, inplace=True)
     
-    # Order columns: "Component", sorted date columns, then "Reference Range"
-    ordered_columns = ["Component"] + date_cols_formatted + ["Reference Range"]
+    # Order columns: "Test", sorted date columns, then "Reference Range"
+    ordered_columns = ["Test"] + date_cols_formatted + ["Reference Range"] #changed this from Component to Test
     final_df = final_df[ordered_columns]
     
     # Save raw combined data to Excel (intermediate output)
