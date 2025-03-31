@@ -82,16 +82,16 @@ def extract_table_data_scan(text):
         data_rows = []
         print(f"\nDebug: Processing data rows starting from line {current_line}")
         
-        # Initialize variables for current component
-        current_component = None
-        current_values = []
-        current_range = None
-        value_count = 0
+        # Initialize variables for tracking the current component being processed
+        current_component = None      # The name of the current lab test (e.g., "Chloride", "CO2")
+        current_values = []          # List of test results for the current component
+        current_range = None         # Reference range for the current component
+        value_count = 0              # Number of values collected for current component
         i = current_line
         while i < len(lines):
             line = lines[i]
             
-            # Special debug for Chloride and eGFR
+            # Debug output for specific components we're having trouble with
             if "Chloride" in line or "eGFR" in line:
                 print(f"\nSPECIAL DEBUG - Line {i}: {line}")
                 print(f"Current component: {current_component}")
@@ -102,9 +102,10 @@ def extract_table_data_scan(text):
                 if i + 2 < len(lines):
                     print(f"Next next line: {lines[i + 2]}")
             
-            # Skip if we hit another Component header
+            # CASE 1: Found a new Component header row
+            # This marks the start of a new section in the PDF
             if line.startswith("Component"):
-                # Save previous component if we have one
+                # Save the previous component's data if we have any
                 if current_component and len(current_values) > 0:
                     # Pad values with empty strings if we don't have enough
                     while len(current_values) < len(date_headers):
@@ -118,19 +119,22 @@ def extract_table_data_scan(text):
                 i += 1
                 continue
                 
-            # Skip if we hit another date header
+            # CASE 2: Found a date header
+            # Skip these as they're just column headers
             if date_pattern.search(line):
                 i += 1
                 continue
                 
-            # If this is a component name (not a value or normal range)
+            # CASE 3: Found a new component name
+            # This is a line that doesn't contain numbers and isn't a normal range
+            # Examples: "Chloride", "CO2", "Sodium"
             if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
-                # Skip if this is just a unit
+                # Skip if this is just a unit (like "m2")
                 if line.strip().lower() in ['m2']:
                     i += 1
                     continue
                     
-                # If we have a previous component, save it
+                # Save the previous component's data if we have any
                 if current_component and len(current_values) > 0:
                     # Pad values with empty strings if we don't have enough
                     while len(current_values) < len(date_headers):
@@ -141,16 +145,21 @@ def extract_table_data_scan(text):
                     value_count = 0
                     current_range = None
                 
-                # Start new component
+                # Start processing the new component
                 current_component = line
                 current_values = []
                 current_range = None
                 i += 1
                 continue
-            # If this is a normal range
+
+            # CASE 4: Found a reference range
+            # This starts with "Normal Range:" and may span multiple lines
+            # Example: "Normal Range: 21 - 31 mmol/L"
             elif line.startswith("Normal Range:"):
-                # Check if the next line is a continuation of the range
+                # Start collecting the range text, removing the "Normal Range:" prefix
                 range_text = line.replace("Normal Range:", "").strip()
+                
+                # Check subsequent lines to see if the range continues
                 while i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
                     # Stop if we hit a new component or a value (but not a unit)
@@ -164,9 +173,12 @@ def extract_table_data_scan(text):
                 print(f"Debug: Found reference range for {current_component}: {current_range}")
                 i += 1
                 continue
-            # If this is a value (must contain a number and not be part of a range)
+
+            # CASE 5: Found a test result value
+            # This is a line containing numbers that isn't part of a reference range
+            # Examples: "103 mmol/L", "30 mmol/L"
             elif any(c.isdigit() for c in line):
-                # Skip if this is just a unit
+                # Skip if this is just a unit (like "m2")
                 if line.strip().lower() in ['m2'] or not any(c.isdigit() for c in line):
                     i += 1
                     continue
@@ -180,9 +192,9 @@ def extract_table_data_scan(text):
                     continue
                 # Only add if it's a valid value (contains a number and not part of a range)
                 if any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
-                    # Check if this line is actually a new component (like CO2)
+                    # Special case: Check if this line is actually a new component (like CO2)
                     if line.strip().upper() in ['CO2']:
-                        # Save previous component if we have one
+                        # Save the previous component's data if we have any
                         if current_component and len(current_values) > 0:
                             # Pad values with empty strings if we don't have enough
                             while len(current_values) < len(date_headers):
@@ -192,18 +204,19 @@ def extract_table_data_scan(text):
                             current_values = []
                             value_count = 0
                             current_range = None
-                        # Start new component
+                        # Start processing the new component
                         current_component = line
                         current_values = []
                         current_range = None
                         i += 1
                         continue
+                    # Add the value to the current component's results
                     current_values.append(line.strip())
                     value_count += 1
                     print(f"Debug: Added value {line.strip()} for component {current_component}")
             i += 1
         
-        # Don't forget to add the last component
+        # Don't forget to add the last component's data
         if current_component and len(current_values) > 0:
             # Pad values with empty strings if we don't have enough
             while len(current_values) < len(date_headers):
