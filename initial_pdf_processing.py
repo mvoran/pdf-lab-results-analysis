@@ -33,6 +33,7 @@ def extract_table_data_scan(text):
     try:
         # Split text into lines and remove empty lines
         lines = [line.strip() for line in text.split('\n') if line.strip()]
+        #print(lines)
         
         print("\nDebug: First few lines of text:")
         for i, line in enumerate(lines[:10]):
@@ -90,6 +91,17 @@ def extract_table_data_scan(text):
         while i < len(lines):
             line = lines[i]
             
+            # Special debug for Chloride and eGFR
+            if "Chloride" in line or "eGFR" in line:
+                print(f"\nSPECIAL DEBUG - Line {i}: {line}")
+                print(f"Current component: {current_component}")
+                print(f"Current values: {current_values}")
+                print(f"Current range: {current_range}")
+                if i + 1 < len(lines):
+                    print(f"Next line: {lines[i + 1]}")
+                if i + 2 < len(lines):
+                    print(f"Next next line: {lines[i + 2]}")
+            
             # Skip if we hit another Component header
             if line.startswith("Component"):
                 # Save previous component if we have one
@@ -113,6 +125,11 @@ def extract_table_data_scan(text):
                 
             # If this is a component name (not a value or normal range)
             if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
+                # Skip if this is just a unit
+                if line.strip().lower() in ['m2']:
+                    i += 1
+                    continue
+                    
                 # If we have a previous component, save it
                 if current_component and len(current_values) > 0:
                     # Pad values with empty strings if we don't have enough
@@ -128,28 +145,62 @@ def extract_table_data_scan(text):
                 current_component = line
                 current_values = []
                 current_range = None
+                i += 1
+                continue
             # If this is a normal range
             elif line.startswith("Normal Range:"):
                 # Check if the next line is a continuation of the range
                 range_text = line.replace("Normal Range:", "").strip()
-                while i + 1 < len(lines) and not any(c.isdigit() for c in lines[i + 1]) and not lines[i + 1].startswith("Normal Range:"):
+                while i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    # Stop if we hit a new component or a value (but not a unit)
+                    if next_line.startswith("Component") or (any(c.isdigit() for c in next_line) and not next_line.lower() in ['m2']):
+                        break
+                    # Add the next line to the range if it's not another range
+                    if not next_line.startswith("Normal Range:"):
+                        range_text += " " + next_line
                     i += 1
-                    range_text += " " + lines[i].strip()
                 current_range = range_text
                 print(f"Debug: Found reference range for {current_component}: {current_range}")
-            # If this is a value
+                i += 1
+                continue
+            # If this is a value (must contain a number and not be part of a range)
             elif any(c.isdigit() for c in line):
-                # Skip if this is just a unit (like "m2" or "CO2")
-                if line.strip().lower() in ['m2', 'co2']:
+                # Skip if this is just a unit
+                if line.strip().lower() in ['m2'] or not any(c.isdigit() for c in line):
                     i += 1
                     continue
                 # Skip if this is part of the reference range
                 if current_range and line.strip() in current_range:
                     i += 1
                     continue
-                current_values.append(line.strip())
-                value_count += 1
-                print(f"Debug: Added value {line.strip()} for component {current_component}")
+                # Skip if this is a new component name
+                if not any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
+                    i += 1
+                    continue
+                # Only add if it's a valid value (contains a number and not part of a range)
+                if any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
+                    # Check if this line is actually a new component (like CO2)
+                    if line.strip().upper() in ['CO2']:
+                        # Save previous component if we have one
+                        if current_component and len(current_values) > 0:
+                            # Pad values with empty strings if we don't have enough
+                            while len(current_values) < len(date_headers):
+                                current_values.append("")
+                            row = [current_component] + current_values + [current_range]
+                            data_rows.append(row)
+                            current_values = []
+                            value_count = 0
+                            current_range = None
+                        # Start new component
+                        current_component = line
+                        current_values = []
+                        current_range = None
+                        i += 1
+                        continue
+                    current_values.append(line.strip())
+                    value_count += 1
+                    print(f"Debug: Added value {line.strip()} for component {current_component}")
             i += 1
         
         # Don't forget to add the last component
