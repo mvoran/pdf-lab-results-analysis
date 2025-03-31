@@ -30,52 +30,123 @@ def extract_table_data_scan(text):
     This function now looks for dates in the header row.
     The header row is expected to begin with "Component" followed by one or more date strings.
     """
-    # Split text into lines and remove empty lines
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-
-    # Split the extracted text into lines.
-    lines2 = text.splitlines()
-
-    # Print lines that contain the dates of interest.
-    for i, line in enumerate(lines2):
-        if "Feb 9, 2024" in line or "Oct 16, 2024" in line or "Component" in line:
-            print(f"Line {i}: {line}")
+    try:
+        # Split text into lines and remove empty lines
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-    # Find the header row that starts with "Component"
-    header_row_index = None
-    for i, line in enumerate(lines):
-        if line.startswith("Component"):
-            header_row_index = i
-            break
-    
-    if header_row_index is None:
-        print("Error: 'Component' header row not found in text.")
+        print("\nDebug: First few lines of text:")
+        for i, line in enumerate(lines[:10]):
+            print(f"Line {i}: {line}")
+
+        # Find the header row that starts with "Component"
+        header_row_index = None
+        for i, line in enumerate(lines):
+            if line.startswith("Component"):
+                header_row_index = i
+                break
+        
+        if header_row_index is None:
+            print("Error: 'Component' header row not found in text.")
+            return None, None
+        
+        print(f"\nDebug: Found Component row at index {header_row_index}")
+        print(f"Component row content: {lines[header_row_index]}")
+        
+        # Look for dates in subsequent lines until we hit a non-date line
+        date_headers = []
+        date_pattern = re.compile(r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})")
+        
+        # Start looking at the line after Component
+        current_line = header_row_index + 1
+        while current_line < len(lines):
+            line = lines[current_line]
+            print(f"\nDebug: Checking line {current_line}: {line}")
+            # Check if this line contains a date
+            if date_pattern.search(line):
+                date_headers.append(line.strip())
+                print(f"Found date: {line.strip()}")
+                current_line += 1
+            else:
+                print("No date found in this line, stopping date search")
+                # If we hit a non-date line, we've found all the date headers
+                break
+        
+        if not date_headers:
+            print("Error: No date headers found after Component row.")
+            return None, None
+        
+        print(f"Found date headers: {date_headers}")
+        
+        # Now process the data rows (starting after the date headers)
+        data_rows = []
+        print(f"\nDebug: Processing data rows starting from line {current_line}")
+        
+        # Initialize variables for current component
+        current_component = None
+        current_values = []
+        current_range = None
+        value_count = 0
+        
+        for line in lines[current_line:]:
+            # Skip if we hit another Component header
+            if line.startswith("Component"):
+                # Save previous component if we have one
+                if current_component and len(current_values) > 0:
+                    row = [current_component] + current_values
+                    if len(row) == len(date_headers) + 1:  # +1 for Component column
+                        data_rows.append(row)
+                    current_values = []
+                    value_count = 0
+                current_component = line
+                continue
+                
+            # Skip if we hit another date header
+            if date_pattern.search(line):
+                continue
+                
+            # If this is a component name (not a value or normal range)
+            if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
+                # If we have a previous component, save it
+                if current_component and len(current_values) > 0:
+                    row = [current_component] + current_values
+                    if len(row) == len(date_headers) + 1:  # +1 for Component column
+                        data_rows.append(row)
+                    current_values = []
+                    value_count = 0
+                
+                # Start new component
+                current_component = line
+                current_values = []
+                current_range = None
+            # If this is a normal range
+            elif line.startswith("Normal Range:"):
+                current_range = line.replace("Normal Range:", "").strip()
+            # If this is a value
+            elif any(c.isdigit() for c in line):
+                current_values.append(line.strip())
+                value_count += 1
+                print(f"Debug: Added value {line.strip()} for component {current_component}")
+        
+        # Don't forget to add the last component
+        if current_component and len(current_values) > 0:
+            row = [current_component] + current_values
+            if len(row) == len(date_headers) + 1:  # +1 for Component column
+                data_rows.append(row)
+        
+        print(f"Found {len(data_rows)} valid data rows")
+        for row in data_rows:
+            print(f"Debug: Data row: {row}")
+        
+        # Create DataFrame with Component and date columns
+        columns = ['Component'] + date_headers
+        df = pd.DataFrame(data_rows, columns=columns)
+        
+        return df, date_headers
+    except Exception as e:
+        print(f"Error in extract_table_data_scan: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return None, None
-    
-    # Split the header row by whitespace (assuming columns are separated by multiple spaces or tabs)
-    headers = re.split(r'\s{2,}', lines[header_row_index])
-    print(lines[header_row_index])
-    # The first token should be "Component", and the rest are date headers.
-    if len(headers) < 2:
-        print("Error: No date columns found in header row.")
-        return None, None
-    
-    date_headers = headers[1:]
-    print("Extracted date headers from Scan file:", date_headers)
-    
-    # Now process the subsequent rows.
-    # We assume that each row in the table has the same number of columns as the header row.
-    data_rows = []
-    for line in lines[header_row_index+1:]:
-        # Use 2+ spaces as delimiter; adjust as needed for your file.
-        tokens = re.split(r'\s{2,}', line)
-        if len(tokens) < len(headers):
-            continue  # skip rows that don't have enough columns
-        data_rows.append(tokens)
-    
-    # Create a DataFrame using the header row as column names.
-    df = pd.DataFrame(data_rows, columns=headers)
-    return df, date_headers
 
 def extract_table_data_other(text):
     """
@@ -175,7 +246,7 @@ def main():
     # Build rows for the final DataFrame
     rows = []
     for test in combined_data.keys():
-        row = {"Test": test}
+        row = {"Component": test}
         for d in all_dates:
             row[d] = combined_data[test].get(d, "")
         row["Reference Range"] = reference_ranges.get(test, "")
@@ -194,8 +265,8 @@ def main():
     rename_mapping = {old: reformat_date(old) for old in all_dates}
     final_df.rename(columns=rename_mapping, inplace=True)
     
-    # Order columns: "Test", sorted date columns, then "Reference Range"
-    ordered_columns = ["Test"] + date_cols_formatted + ["Reference Range"]
+    # Order columns: "Component", sorted date columns, then "Reference Range"
+    ordered_columns = ["Component"] + date_cols_formatted + ["Reference Range"]
     final_df = final_df[ordered_columns]
     
     # Save raw combined data to Excel (intermediate output)
