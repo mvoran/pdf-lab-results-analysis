@@ -36,7 +36,6 @@ def extract_table_data_scan(text):
     try:
         # Split text into lines and remove empty lines
         lines = [line.strip() for line in text.split('\n') if line.strip()]
-        print(lines)
 
         print("\nDebug: First few lines of text:")
         for i, line in enumerate(lines[:10]):
@@ -49,13 +48,13 @@ def extract_table_data_scan(text):
         for i, line in enumerate(lines):
             if line.startswith("Component"):
                 component_indices.append(i)
-                print(f"Found Component header at line {i}")
+                #print(f"Found Component header at line {i}")
         
         if not component_indices:
             print("Error: No 'Component' header rows found in text.")
             return None, None
         
-        print(f"\nDebug: Found {len(component_indices)} Component rows at indices: {component_indices}")
+        #print(f"\nDebug: Found {len(component_indices)} Component rows at indices: {component_indices}")
         
         # Process each section
         all_data_rows = []
@@ -72,14 +71,14 @@ def extract_table_data_scan(text):
             current_line = section_start + 1
             while current_line < len(lines):
                 line = lines[current_line]
-                print(f"\nDebug: Checking line {current_line}: {line}")
+                #print(f"\nDebug: Checking line {current_line}: {line}")
                 # Check if this line contains a date
                 if date_pattern.search(line):
                     date_headers.append(line.strip())
-                    print(f"Found date: {line.strip()}")
+                    #print(f"Found date: {line.strip()}")
                     current_line += 1
                 else:
-                    print("No date found in this line, stopping date search")
+                    #print("No date found in this line, stopping date search")
                     # If we hit a non-date line, we've found all the date headers
                     break
             
@@ -87,12 +86,12 @@ def extract_table_data_scan(text):
                 print("Error: No date headers found after Component row.")
                 continue
             
-            print(f"Found date headers: {date_headers}")
+            #print(f"Found date headers: {date_headers}")
             all_date_headers.update(date_headers)
             
             # Now process the data rows (starting after the date headers)
             data_rows = []
-            print(f"\nDebug: Processing data rows starting from line {current_line}")
+            #print(f"\nDebug: Processing data rows starting from line {current_line}")
             
             # Initialize variables for tracking the current component being processed
             current_component = None      # The name of the current lab test (e.g., "Chloride", "CO2")
@@ -180,7 +179,7 @@ def extract_table_data_scan(text):
                             range_text += " " + next_line
                         i += 1
                     current_range = range_text
-                    print(f"Debug: Found reference range for {current_component}: {current_range}")
+                    #print(f"Debug: Found reference range for {current_component}: {current_range}")
                     i += 1
                     continue
 
@@ -220,10 +219,17 @@ def extract_table_data_scan(text):
                             current_range = None
                             i += 1
                             continue
-                        # Add the value to the current component's results
-                        current_values.append(line.strip())
+                        # Add the value to the current component's results, trying to convert to number
+                        value_str = line.strip().split()[0]  # Take everything before the first space
+                        try:
+                            value = float(value_str)  # Try to convert to float
+                            current_values.append(value)
+                            print(f"Debug: Added numeric value {value} (original: {line.strip()}) for component {current_component}")
+                        except ValueError:
+                            # If we can't convert to float, keep the original text
+                            current_values.append(value_str)
+                            print(f"Debug: Added text value {value_str} (original: {line.strip()}) for component {current_component}")
                         value_count += 1
-                        print(f"Debug: Added value {line.strip()} for component {current_component}")
                 i += 1
             
             # Add the data rows from this section
@@ -232,9 +238,9 @@ def extract_table_data_scan(text):
         # Convert all date headers to a sorted list
         all_date_headers = sorted(list(all_date_headers))
         
-        print(f"Found {len(all_data_rows)} total valid data rows")
-        for row in all_data_rows:
-            print(f"Debug: Data row: {row}")
+        #print(f"Found {len(all_data_rows)} total valid data rows")
+        #for row in all_data_rows:
+        #    print(f"Debug: Data row: {row}")
         
         # Create DataFrame with Test, date columns, and Reference Range
         columns = ['Test'] + all_date_headers + ['Reference Range']
