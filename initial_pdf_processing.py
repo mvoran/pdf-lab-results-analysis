@@ -11,8 +11,11 @@ def extract_text_from_pdf(filepath):
     """Extract all text from a PDF file using PyMuPDF."""
     doc = fitz.open(filepath)
     text = ""
-    for page in doc:
-        text += page.get_text()
+    print(f"\nProcessing PDF with {len(doc)} pages")
+    for page_num, page in enumerate(doc):
+        page_text = page.get_text()
+        print(f"\nPage {page_num + 1} content length: {len(page_text)}")
+        text += page_text + "\n" + "="*80 + "\n"  # Add page separator
     doc.close()
     return text
 
@@ -33,206 +36,211 @@ def extract_table_data_scan(text):
     try:
         # Split text into lines and remove empty lines
         lines = [line.strip() for line in text.split('\n') if line.strip()]
-        #print(lines)
-        
+        print(lines)
+
         print("\nDebug: First few lines of text:")
         for i, line in enumerate(lines[:10]):
             print(f"Line {i}: {line}")
-
-        # Find the header row that starts with "Component"
-        header_row_index = None
+            
+        print("\nDebug: Total number of lines:", len(lines))
+        
+        # Find all Component header rows
+        component_indices = []
         for i, line in enumerate(lines):
             if line.startswith("Component"):
-                header_row_index = i
-                break
+                component_indices.append(i)
+                print(f"Found Component header at line {i}")
         
-        if header_row_index is None:
-            print("Error: 'Component' header row not found in text.")
+        if not component_indices:
+            print("Error: No 'Component' header rows found in text.")
             return None, None
         
-        print(f"\nDebug: Found Component row at index {header_row_index}")
-        print(f"Component row content: {lines[header_row_index]}")
+        print(f"\nDebug: Found {len(component_indices)} Component rows at indices: {component_indices}")
         
-        # Look for dates in subsequent lines until we hit a non-date line
-        date_headers = []
-        date_pattern = re.compile(r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})")
+        # Process each section
+        all_data_rows = []
+        all_date_headers = set()
         
-        # Start looking at the line after Component
-        current_line = header_row_index + 1
-        while current_line < len(lines):
-            line = lines[current_line]
-            print(f"\nDebug: Checking line {current_line}: {line}")
-            # Check if this line contains a date
-            if date_pattern.search(line):
-                date_headers.append(line.strip())
-                print(f"Found date: {line.strip()}")
-                current_line += 1
-            else:
-                print("No date found in this line, stopping date search")
-                # If we hit a non-date line, we've found all the date headers
-                break
-        
-        if not date_headers:
-            print("Error: No date headers found after Component row.")
-            return None, None
-        
-        print(f"Found date headers: {date_headers}")
-        
-        # Now process the data rows (starting after the date headers)
-        data_rows = []
-        print(f"\nDebug: Processing data rows starting from line {current_line}")
-        
-        # Initialize variables for tracking the current component being processed
-        current_component = None      # The name of the current lab test (e.g., "Chloride", "CO2")
-        current_values = []          # List of test results for the current component
-        current_range = None         # Reference range for the current component
-        value_count = 0              # Number of values collected for current component
-        i = current_line
-        while i < len(lines):
-            line = lines[i]
+        for section_start in component_indices:
+            print(f"\nProcessing section starting at line {section_start}")
             
-            # Debug output for specific components we're having trouble with
-            if "Chloride" in line or "eGFR" in line:
-                print(f"\nSPECIAL DEBUG - Line {i}: {line}")
-                print(f"Current component: {current_component}")
-                print(f"Current values: {current_values}")
-                print(f"Current range: {current_range}")
-                if i + 1 < len(lines):
-                    print(f"Next line: {lines[i + 1]}")
-                if i + 2 < len(lines):
-                    print(f"Next next line: {lines[i + 2]}")
+            # Look for dates in subsequent lines until we hit a non-date line
+            date_headers = []
+            date_pattern = re.compile(r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})")
             
-            # CASE 1: Found a new Component header row
-            # This marks the start of a new section in the PDF
-            if line.startswith("Component"):
-                # Save the previous component's data if we have any
-                if current_component and len(current_values) > 0:
-                    # Pad values with empty strings if we don't have enough
-                    while len(current_values) < len(date_headers):
-                        current_values.append("")
-                    row = [current_component] + current_values + [current_range]
-                    data_rows.append(row)
-                    current_values = []
-                    value_count = 0
-                    current_range = None
-                current_component = line
-                i += 1
+            # Start looking at the line after Component
+            current_line = section_start + 1
+            while current_line < len(lines):
+                line = lines[current_line]
+                print(f"\nDebug: Checking line {current_line}: {line}")
+                # Check if this line contains a date
+                if date_pattern.search(line):
+                    date_headers.append(line.strip())
+                    print(f"Found date: {line.strip()}")
+                    current_line += 1
+                else:
+                    print("No date found in this line, stopping date search")
+                    # If we hit a non-date line, we've found all the date headers
+                    break
+            
+            if not date_headers:
+                print("Error: No date headers found after Component row.")
                 continue
+            
+            print(f"Found date headers: {date_headers}")
+            all_date_headers.update(date_headers)
+            
+            # Now process the data rows (starting after the date headers)
+            data_rows = []
+            print(f"\nDebug: Processing data rows starting from line {current_line}")
+            
+            # Initialize variables for tracking the current component being processed
+            current_component = None      # The name of the current lab test (e.g., "Chloride", "CO2")
+            current_values = []          # List of test results for the current component
+            current_range = None         # Reference range for the current component
+            value_count = 0              # Number of values collected for current component
+            i = current_line
+            
+            # Find the next section start or end of file
+            next_section_start = None
+            for next_idx in component_indices:
+                if next_idx > section_start:
+                    next_section_start = next_idx
+                    break
+            
+            # Process until we hit the next section or end of file
+            while i < (next_section_start if next_section_start else len(lines)):
+                line = lines[i]
                 
-            # CASE 2: Found a date header
-            # Skip these as they're just column headers
-            if date_pattern.search(line):
-                i += 1
-                continue
-                
-            # CASE 3: Found a new component name
-            # This is a line that doesn't contain numbers and isn't a normal range
-            # Examples: "Chloride", "CO2", "Sodium"
-            if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
-                # Skip if this is just a unit (like "m2")
-                if line.strip().lower() in ['m2']:
-                    i += 1
-                    continue
-                    
-                # Save the previous component's data if we have any
-                if current_component and len(current_values) > 0:
-                    # Pad values with empty strings if we don't have enough
-                    while len(current_values) < len(date_headers):
-                        current_values.append("")
-                    row = [current_component] + current_values + [current_range]
-                    data_rows.append(row)
-                    current_values = []
-                    value_count = 0
-                    current_range = None
-                
-                # Start processing the new component
-                current_component = line
-                current_values = []
-                current_range = None
-                i += 1
-                continue
-
-            # CASE 4: Found a reference range
-            # This starts with "Normal Range:" and may span multiple lines
-            # Example: "Normal Range: 21 - 31 mmol/L"
-            elif line.startswith("Normal Range:"):
-                # Start collecting the range text, removing the "Normal Range:" prefix
-                range_text = line.replace("Normal Range:", "").strip()
-                
-                # Check subsequent lines to see if the range continues
-                while i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    # Stop if we hit a new component or a value (but not a unit)
-                    if next_line.startswith("Component") or (any(c.isdigit() for c in next_line) and not next_line.lower() in ['m2']):
-                        break
-                    # Add the next line to the range if it's not another range
-                    if not next_line.startswith("Normal Range:"):
-                        range_text += " " + next_line
-                    i += 1
-                current_range = range_text
-                print(f"Debug: Found reference range for {current_component}: {current_range}")
-                i += 1
-                continue
-
-            # CASE 5: Found a test result value
-            # This is a line containing numbers that isn't part of a reference range
-            # Examples: "103 mmol/L", "30 mmol/L"
-            elif any(c.isdigit() for c in line):
-                # Skip if this is just a unit (like "m2")
-                if line.strip().lower() in ['m2'] or not any(c.isdigit() for c in line):
-                    i += 1
-                    continue
-                # Skip if this is part of the reference range
-                if current_range and line.strip() in current_range:
-                    i += 1
-                    continue
-                # Skip if this is a new component name
-                if not any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
-                    i += 1
-                    continue
-                # Only add if it's a valid value (contains a number and not part of a range)
-                if any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
-                    # Special case: Check if this line is actually a new component (like CO2)
-                    if line.strip().upper() in ['CO2']:
-                        # Save the previous component's data if we have any
-                        if current_component and len(current_values) > 0:
-                            # Pad values with empty strings if we don't have enough
-                            while len(current_values) < len(date_headers):
-                                current_values.append("")
-                            row = [current_component] + current_values + [current_range]
-                            data_rows.append(row)
-                            current_values = []
-                            value_count = 0
-                            current_range = None
-                        # Start processing the new component
-                        current_component = line
+                # CASE 1: Found a new Component header row
+                # This marks the start of a new section in the PDF
+                if line.startswith("Component"):
+                    # Save the previous component's data if we have any
+                    if current_component and len(current_values) > 0:
+                        # Pad values with empty strings if we don't have enough
+                        while len(current_values) < len(date_headers):
+                            current_values.append("")
+                        row = [current_component] + current_values + [current_range]
+                        data_rows.append(row)
                         current_values = []
+                        value_count = 0
                         current_range = None
+                    current_component = line
+                    i += 1
+                    continue
+                
+                # CASE 2: Found a date header
+                # Skip these as they're just column headers
+                if date_pattern.search(line):
+                    i += 1
+                    continue
+                
+                # CASE 3: Found a new component name
+                # This is a line that doesn't contain numbers and isn't a normal range
+                # Examples: "Chloride", "CO2", "Sodium"
+                if not line.startswith("Normal Range:") and not any(c.isdigit() for c in line):
+                    # Skip if this is just a unit (like "m2")
+                    if line.strip().lower() in ['m2']:
                         i += 1
                         continue
-                    # Add the value to the current component's results
-                    current_values.append(line.strip())
-                    value_count += 1
-                    print(f"Debug: Added value {line.strip()} for component {current_component}")
-            i += 1
+                        
+                    # Save the previous component's data if we have any
+                    if current_component and len(current_values) > 0:
+                        # Pad values with empty strings if we don't have enough
+                        while len(current_values) < len(date_headers):
+                            current_values.append("")
+                        row = [current_component] + current_values + [current_range]
+                        data_rows.append(row)
+                        current_values = []
+                        value_count = 0
+                        current_range = None
+                    
+                    # Start processing the new component
+                    current_component = line
+                    current_values = []
+                    current_range = None
+                    i += 1
+                    continue
+
+                # CASE 4: Found a reference range
+                # This starts with "Normal Range:" and may span multiple lines
+                # Example: "Normal Range: 21 - 31 mmol/L"
+                elif line.startswith("Normal Range:"):
+                    # Start collecting the range text, removing the "Normal Range:" prefix
+                    range_text = line.replace("Normal Range:", "").strip()
+                    
+                    # Check subsequent lines to see if the range continues
+                    while i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        # Stop if we hit a new component or a value (but not a unit)
+                        if next_line.startswith("Component") or (any(c.isdigit() for c in next_line) and not next_line.lower() in ['m2']):
+                            break
+                        # Add the next line to the range if it's not another range
+                        if not next_line.startswith("Normal Range:"):
+                            range_text += " " + next_line
+                        i += 1
+                    current_range = range_text
+                    print(f"Debug: Found reference range for {current_component}: {current_range}")
+                    i += 1
+                    continue
+
+                # CASE 5: Found a test result value
+                # This is a line containing numbers that isn't part of a reference range
+                # Examples: "103 mmol/L", "30 mmol/L"
+                elif any(c.isdigit() for c in line):
+                    # Skip if this is just a unit (like "m2")
+                    if line.strip().lower() in ['m2'] or not any(c.isdigit() for c in line):
+                        i += 1
+                        continue
+                    # Skip if this is part of the reference range
+                    if current_range and line.strip() in current_range:
+                        i += 1
+                        continue
+                    # Skip if this is a new component name
+                    if not any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
+                        i += 1
+                        continue
+                    # Only add if it's a valid value (contains a number and not part of a range)
+                    if any(c.isdigit() for c in line) and not line.startswith("Normal Range:"):
+                        # Special case: Check if this line is actually a new component (like CO2)
+                        if line.strip().upper() in ['CO2']:
+                            # Save the previous component's data if we have any
+                            if current_component and len(current_values) > 0:
+                                # Pad values with empty strings if we don't have enough
+                                while len(current_values) < len(date_headers):
+                                    current_values.append("")
+                                row = [current_component] + current_values + [current_range]
+                                data_rows.append(row)
+                                current_values = []
+                                value_count = 0
+                                current_range = None
+                            # Start processing the new component
+                            current_component = line
+                            current_values = []
+                            current_range = None
+                            i += 1
+                            continue
+                        # Add the value to the current component's results
+                        current_values.append(line.strip())
+                        value_count += 1
+                        print(f"Debug: Added value {line.strip()} for component {current_component}")
+                i += 1
+            
+            # Add the data rows from this section
+            all_data_rows.extend(data_rows)
         
-        # Don't forget to add the last component's data
-        if current_component and len(current_values) > 0:
-            # Pad values with empty strings if we don't have enough
-            while len(current_values) < len(date_headers):
-                current_values.append("")
-            row = [current_component] + current_values + [current_range]
-            data_rows.append(row)
+        # Convert all date headers to a sorted list
+        all_date_headers = sorted(list(all_date_headers))
         
-        print(f"Found {len(data_rows)} valid data rows")
-        for row in data_rows:
+        print(f"Found {len(all_data_rows)} total valid data rows")
+        for row in all_data_rows:
             print(f"Debug: Data row: {row}")
         
         # Create DataFrame with Test, date columns, and Reference Range
-        columns = ['Test'] + date_headers + ['Reference Range']
-        df = pd.DataFrame(data_rows, columns=columns)
+        columns = ['Test'] + all_date_headers + ['Reference Range']
+        df = pd.DataFrame(all_data_rows, columns=columns)
         
-        return df, date_headers
+        return df, all_date_headers
     except Exception as e:
         print(f"Error in extract_table_data_scan: {str(e)}")
         import traceback
